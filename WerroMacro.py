@@ -17,9 +17,6 @@ class MouseKeyboardRecorder(tk.Tk):
         self.action_history = scrolledtext.ScrolledText(self, wrap=tk.WORD)
         self.action_history.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
 
-        self.last_move_time = 0  # Inicializa la última vez que se registró un movimiento
-        self.move_interval = 0.3
-        
         # Controles para repetir y delay
         repeat_frame = tk.Frame(self)
         repeat_frame.pack(padx=10, pady=5, fill=tk.X)
@@ -61,7 +58,6 @@ class MouseKeyboardRecorder(tk.Tk):
         self.recording = False
         self.events = []
         
-
     def start_recording(self):
         if not self.recording:
             self.events = []
@@ -112,59 +108,56 @@ class MouseKeyboardRecorder(tk.Tk):
         self.recording_label.config(text=f'Grabación guardada en: {file_path}')
 
     def replicate(self):
-        # Carga los eventos desde un archivo JSON
         file_path = filedialog.askopenfilename(filetypes=[('JSON files', '*.json')])
         if not file_path:
             return  # El usuario canceló la operación
-        
+
         with open(file_path, 'r') as json_file:
-            events = json.load(json_file)
-            
+            self.events = json.load(json_file)
+
+        self.events_index = 0
+        self.prev_event_time = self.events[0]['time'] if self.events else time.time()
+        self.schedule_next_event()
+
+    def schedule_next_event(self):
+        if self.events_index < len(self.events):
+            event = self.events[self.events_index]
+            current_event_time = event['time']
+            delay = (current_event_time - self.prev_event_time) * 500  # en milisegundos
+            self.after(int(delay), self.play_event, event)
+            self.prev_event_time = current_event_time
+            self.events_index += 1
+        else:
+            self.action_history.insert(tk.END, "Replicación completada.\n")
+
+    def play_event(self, event):
         mouse_controller = MouseController()
         keyboard_controller = KeyboardController()
-        
-        start_time = events[0]['time']  # Tiempo del primer evento
-        
-        for event in events:
-            current_time = event['time']
-            delay = current_time - start_time  # Calcula el retraso desde el evento anterior
-            time.sleep(delay)  # Pausa la ejecución para simular el tiempo real
-            start_time = current_time  # Actualiza el tiempo de inicio para el próximo ciclo
-            if event['type'] == 'click':
-                # Obtiene la información del evento
-                x, y = event['pos']
-                button = MouseButton.left if event['button'] == 'Button.left' else MouseButton.right
-                pressed = event['pressed']
-                
-                # Mueve el mouse y hace clic o suelta
-                mouse_controller.position = (x, y)
-                mouse_controller.press(button)
-            elif event['type'] == 'keypress':
-                # Obtiene la tecla del evento
-                key = event['key']
-                try:
-                    # Intenta interpretar la tecla como una tecla especial
-                    key_to_press = getattr(Key, key)
-                except AttributeError:
-                    # Si no es una tecla especial, es un caracter
-                    key_to_press = key
-                
-                # Presiona y suelta la tecla
-                keyboard_controller.press(key_to_press)
-                keyboard_controller.release(key_to_press)
-            elif event['type'] == 'move':
-                x, y = event['pos']
-                mouse_controller.position = (x, y)
-                
 
-            # Añade un delay entre ciclos si se requiere
-            #if self.delay_entry == '' or self.delay_entry == 0:
-            #    delay = 0.0
-            #else:
-            #    delay = float(self.delay_entry.get())
-                
-            time.sleep(delay)
-        
+        if event['type'] == 'click':
+            x, y = event['pos']
+            button = MouseButton.left if event['button'] == 'Button.left' else MouseButton.right
+            pressed = event['pressed']
+            mouse_controller.position = (x, y)
+            if pressed:
+                mouse_controller.press(button)
+            else:
+                mouse_controller.release(button)
+        elif event['type'] == 'keypress':
+            key = event['key']
+            try:
+                key_to_press = getattr(Key, key)  # Intenta obtener como tecla especial
+            except AttributeError:
+                key_to_press = key  # Si falla, es un caracter regular
+            keyboard_controller.press(key_to_press)
+            keyboard_controller.release(key_to_press)
+        elif event['type'] == 'move':
+            x, y = event['pos']
+            mouse_controller.position = (x, y)
+
+        self.schedule_next_event()
+
+  
     def on_move(self, x, y):
         current_time = time.time()
         if self.recording and (current_time - self.last_move_time >= self.move_interval):
